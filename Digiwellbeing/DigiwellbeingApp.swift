@@ -12,6 +12,9 @@ struct DigiwellbeingApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onOpenURL { url in
+                    _ = AuthManager.shared.handleOpenURL(url)
+                }
         }
     }
 }

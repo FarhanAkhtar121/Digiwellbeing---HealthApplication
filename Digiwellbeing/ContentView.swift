@@ -1,107 +1,153 @@
-//
-//  ContentView.swift
-//  Digiwellbeing
-//
-//  Created by farhan akhtar on 18/09/25.
-//
-
 import SwiftUI
 import HealthKit
+import Charts
 
-struct ContentView: View {
-    @StateObject private var healthManager = HealthKitManager.shared
-    @StateObject private var connectivityManager = ConnectivityManager.shared
-    
-    @State private var heartRateHistory: [HeartRateReading] = []
+struct SignInView: View {
+    @ObservedObject private var authManager = AuthManager.shared
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Current Heart Rate Card
-                    HeartRateCard(heartRate: healthManager.heartRate)
-                    
-                    // Heart Rate History Chart
-                    HeartRateChartView(readings: heartRateHistory)
-                    
-                    // Control Buttons
-                    HStack(spacing: 20) {
-                        Button("Start Monitoring") {
-                            healthManager.startHeartRateMonitoring()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        
-                        Button("Request Permission") {
-                            Task {
-                                do {
-                                    let authorized = try await healthManager.requestAuthorization()
-                                    healthManager.isAuthorized = authorized
-                                } catch {
-                                    print("Authorization failed: \(error)")
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
+        VStack(spacing: 32) {
+            Text("Sign In")
+                .font(.largeTitle)
+                .padding(.top, 40)
+            Button(action: {
+                authManager.signInWithGoogle()
+            }) {
+                HStack {
+                    Image(systemName: "globe")
+                    Text("Sign in with Google")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.red.opacity(0.8))
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+            Button(action: {
+                authManager.signInWithMicrosoft()
+            }) {
+                HStack {
+                    Image(systemName: "person.crop.circle")
+                    Text("Sign in with Microsoft")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.blue.opacity(0.8))
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
+        }
+        .padding()
+    }
+}
+
+struct ContentView: View {
+    @ObservedObject private var authManager = AuthManager.shared
+    
+    var body: some View {
+        if authManager.isAuthenticated {
+            HomeTabsView()
+        } else {
+            SignInView()
+        }
+    }
+}
+
+struct HomeTabsView: View {
+    @ObservedObject private var authManager = AuthManager.shared
+    var body: some View {
+        TabView {
+            DashboardView()
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+            SummaryView()
+                .tabItem {
+                    Label("Summary", systemImage: "heart.text.square")
+                }
+            SharingView()
+                .tabItem {
+                    Label("Sharing", systemImage: "person.2.fill")
+                }
+        }
+        .tint(.accentColor)
+    }
+}
+
+struct HeartMonitorView: View {
+    @ObservedObject private var healthKitManager = HealthKitManager.shared
+    @ObservedObject private var authManager = AuthManager.shared
+
+    var body: some View {
+        VStack {
+            HStack {
+                if let name = authManager.userName {
+                    Text("Welcome, \(name)!")
+                        .font(.headline)
+                        .foregroundColor(.accentColor)
+                }
+                Spacer()
+                Button {
+                    authManager.signOut()
+                } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .foregroundColor(.red)
+                        .font(.title3)
+                        .accessibilityLabel("Logout")
+                }
+            }
+            .padding([.top, .horizontal])
+
+            Text("Heart Monitor")
+                .font(.largeTitle)
+                .padding()
+
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.red.opacity(0.2))
+                .frame(height: 100)
+                .overlay {
+                    VStack {
+                        Image(systemName: "heart.fill")
+                            .foregroundColor(.red)
+                            .font(.title)
+                        Text("\(Int(healthKitManager.heartRate)) BPM")
+                            .font(.title)
+                            .foregroundColor(.red)
                     }
-                    
-                    Spacer()
                 }
                 .padding()
-            }
-            .navigationTitle("Heart Monitor")
-            .onAppear {
-                Task {
-                    do {
-                        let authorized = try await healthManager.requestAuthorization()
-                        healthManager.isAuthorized = authorized
-                    } catch {
-                        print("Authorization failed: \(error)")
+
+            HeartRateChartView(readings: healthKitManager.heartRateHistory)
+
+            HStack {
+                Button("Start Monitoring") {
+                    healthKitManager.startHeartRateMonitoring()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Request Permission") {
+                    Task {
+                        do {
+                            let success = try await healthKitManager.requestAuthorization()
+                            healthKitManager.isAuthorized = success
+                        } catch {
+                            print("Authorization failed: \(error.localizedDescription)")
+                        }
                     }
                 }
+                .buttonStyle(.bordered)
             }
-            .onChange(of: connectivityManager.heartRateData) { _, newData in
-                if let heartRate = newData["heartRate"] as? Double,
-                   let timestamp = newData["timestamp"] as? TimeInterval {
-                    let reading = HeartRateReading(
-                        heartRate: heartRate,
-                        timestamp: Date(timeIntervalSince1970: timestamp)
-                    )
-                    heartRateHistory.append(reading)
+            .padding()
+        }
+        .onAppear {
+            Task {
+                do {
+                    let success = try await healthKitManager.requestAuthorization()
+                    healthKitManager.isAuthorized = success
+                } catch {
+                    print("Authorization failed: \(error.localizedDescription)")
                 }
             }
         }
     }
 }
-
-struct HeartRateCard: View {
-    let heartRate: Double
-    
-    var body: some View {
-        RoundedRectangle(cornerRadius: 15)
-            .fill(Color.red.gradient)
-            .frame(height: 150)
-            .overlay {
-                VStack {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.white)
-                    
-                    Text("\(Int(heartRate))")
-                        .font(.largeTitle.bold())
-                        .foregroundColor(.white)
-                    
-                    Text("BPM")
-                        .font(.headline)
-                        .foregroundColor(.white.opacity(0.8))
-                }
-            }
-            .padding(.horizontal)
-    }
-}
-
-struct HeartRateReading: Identifiable {
-    let id = UUID()
-    let heartRate: Double
-    let timestamp: Date
-}
-

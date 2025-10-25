@@ -9,35 +9,30 @@ import Charts
 
 struct HeartRateChartView: View {
     let readings: [HeartRateReading]
-    
+
     var body: some View {
         VStack(alignment: .leading) {
             Text("Heart Rate History")
                 .font(.headline)
-                .padding(.horizontal)
-            
+                .padding(.bottom, 4)
             if readings.isEmpty {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.gray.opacity(0.1))
-                    .frame(height: 200)
-                    .overlay {
-                        Text("No heart rate data available")
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(height: 120)
+                    Text("No heart rate data available")
+                        .foregroundColor(.gray)
+                }
             } else {
-                Chart(readings.suffix(20)) { reading in
+                Chart(readings) { reading in
                     LineMark(
                         x: .value("Time", reading.timestamp),
                         y: .value("BPM", reading.heartRate)
                     )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(Color.red.gradient)
                 }
-                .frame(height: 200)
-                .padding()
+                .frame(height: 120)
             }
         }
+        .padding(.horizontal)
     }
 }
-
