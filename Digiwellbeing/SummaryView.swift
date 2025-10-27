@@ -7,25 +7,13 @@ struct SummaryView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Welcome + logout
-                    HStack {
-                        if let name = authManager.userName {
-                            Text("Welcome, \(name)!")
-                                .font(.title3)
-                                .bold()
-                                .foregroundColor(.accentColor)
-                        }
-                        Spacer()
-                        Button {
-                            authManager.signOut()
-                        } label: {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .foregroundColor(.red)
-                                .font(.title3)
-                                .accessibilityLabel("Logout")
-                        }
+                    AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
+                    if let name = authManager.userName {
+                        Text("Welcome, \(name)!")
+                            .font(.subheadline)
+                            .foregroundColor(.accentColor)
+                            .padding(.horizontal)
                     }
-                    .padding(.horizontal)
 
                     Text("Summary")
                         .font(.largeTitle)
@@ -105,7 +93,6 @@ struct SummaryActivityCard: View {
                 Spacer()
                 Image(systemName: "chart.pie.fill").foregroundColor(.orange)
             }
-            
         }
     }
 }

@@ -82,6 +82,13 @@ class HealthKitManager: ObservableObject {
     }
     
     func requestAuthorization() async throws -> Bool {
+        #if targetEnvironment(simulator)
+        // Simulator: HealthKit unavailable -> immediately switch to mock
+        self.useMockData = true
+        self.isAuthorized = false
+        loadMockDashboardData()
+        return false
+        #endif
         guard HKHealthStore.isHealthDataAvailable() else {
             // Simulator or not available -> use mock dashboard data
             self.useMockData = true

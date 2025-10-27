@@ -4,32 +4,22 @@ struct DashboardView: View {
     let gridItems = [GridItem(.flexible()), GridItem(.flexible())]
     @State private var showHeartMonitor = false
     @State private var showWorkouts = false
+    @State private var showStepsDetail = false
     @ObservedObject private var authManager = AuthManager.shared
     @ObservedObject private var health = HealthKitManager.shared
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let name = authManager.userName {
-                                Text("Welcome, \(name)!")
-                                    .font(.title2)
-                                    .bold()
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        Spacer()
-                        Button(action: {
-                            authManager.signOut()
-                        }) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.title2)
-                                .foregroundColor(.red)
-                                .accessibilityLabel("Logout")
-                        }
+                    AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
+                    // Welcome line below the consistent header
+                    if let name = authManager.userName {
+                        Text("Welcome, \(name)!")
+                            .font(.subheadline)
+                            .foregroundColor(.accentColor)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
                     }
-                    .padding([.top, .horizontal])
 
                     if health.useMockData {
                         Label("Showing demo data (Simulator)", systemImage: "info.circle")
@@ -60,7 +50,10 @@ struct DashboardView: View {
                             HeartRateCard()
                         }
                         .buttonStyle(PlainButtonStyle())
-                        StepsDistanceCard()
+                        Button(action: { showStepsDetail = true }) {
+                            StepsDistanceCard()
+                        }
+                        .buttonStyle(PlainButtonStyle())
                         Button(action: { showWorkouts = true }) {
                             WorkoutsCard()
                         }
@@ -87,6 +80,9 @@ struct DashboardView: View {
                 }
                 .sheet(isPresented: $showWorkouts) {
                     WorkoutsDetailView()
+                }
+                .sheet(isPresented: $showStepsDetail) {
+                    StepsDetailView()
                 }
             }
         }
@@ -385,28 +381,32 @@ struct WorkoutsDetailView: View {
         ("Yoga", "figure.yoga", "45 min", "Evening yoga"),
         ("HIIT", "figure.strengthtraining.traditional", "25 min", "HIIT session")
     ]
+    @ObservedObject private var authManager = AuthManager.shared
     var body: some View {
         NavigationView {
-            List(workouts, id: \.0) { workout in
-                HStack {
-                    Image(systemName: workout.1)
-                        .foregroundColor(.orange)
-                        .frame(width: 32)
-                    VStack(alignment: .leading) {
-                        Text(workout.0)
-                            .font(.headline)
-                        Text(workout.3)
+            VStack(spacing: 0) {
+                AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
+                List(workouts, id: \.0) { workout in
+                    HStack {
+                        Image(systemName: workout.1)
+                            .foregroundColor(.orange)
+                            .frame(width: 32)
+                        VStack(alignment: .leading) {
+                            Text(workout.0)
+                                .font(.headline)
+                            Text(workout.3)
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Text(workout.2)
                             .font(.subheadline)
-                            .foregroundColor(.gray)
                     }
-                    Spacer()
-                    Text(workout.2)
-                        .font(.subheadline)
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .listStyle(InsetGroupedListStyle())
             }
-            .navigationTitle("Workouts")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
         }
     }
 }

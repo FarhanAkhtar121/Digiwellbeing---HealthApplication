@@ -43,12 +43,26 @@ struct SignInView: View {
 
 struct ContentView: View {
     @ObservedObject private var authManager = AuthManager.shared
+    @State private var showSplash = true
     
     var body: some View {
-        if authManager.isAuthenticated {
-            HomeTabsView()
-        } else {
-            SignInView()
+        Group {
+            if showSplash {
+                SplashView(appName: "DigitalWellbeing - Health App")
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                            withAnimation { showSplash = false }
+                        }
+                    }
+            } else {
+                if authManager.isAuthenticated {
+                    HomeTabsView()
+                } else {
+                    NavigationStack {
+                        LoginView()
+                    }
+                }
+            }
         }
     }
 }
@@ -79,24 +93,14 @@ struct HeartMonitorView: View {
     @ObservedObject private var authManager = AuthManager.shared
 
     var body: some View {
-        VStack {
-            HStack {
-                if let name = authManager.userName {
-                    Text("Welcome, \(name)!")
-                        .font(.headline)
-                        .foregroundColor(.accentColor)
-                }
-                Spacer()
-                Button {
-                    authManager.signOut()
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .foregroundColor(.red)
-                        .font(.title3)
-                        .accessibilityLabel("Logout")
-                }
+        VStack(alignment: .leading) {
+            AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
+            if let name = authManager.userName {
+                Text("Welcome, \(name)!")
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal)
             }
-            .padding([.top, .horizontal])
 
             Text("Heart Monitor")
                 .font(.largeTitle)

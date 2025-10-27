@@ -21,25 +21,15 @@ struct SharingView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 16) {
-                // Header with welcome + logout
-                HStack {
-                    if let name = authManager.userName {
-                        Text("Welcome, \(name)!")
-                            .font(.title3)
-                            .bold()
-                            .foregroundColor(.accentColor)
-                    }
-                    Spacer()
-                    Button {
-                        authManager.signOut()
-                    } label: {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .foregroundColor(.red)
-                            .font(.title3)
-                            .accessibilityLabel("Logout")
-                    }
+                AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
+
+                if let username = authManager.userName {
+                    Text("Welcome, \(username)!")
+                        .font(.subheadline)
+                        .foregroundColor(.accentColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
                 }
-                .padding(.horizontal)
 
                 // Title
                 HStack {
