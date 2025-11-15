@@ -43,13 +43,35 @@ struct LoginView: View {
             }
 
             // Login button
-            Button(action: { auth.signInWithEmail(email: email, password: password, remember: rememberMe) }) {
-                Text("Login").font(.headline).frame(maxWidth: .infinity).padding()
+            Button(action: {
+                Task {
+                    await auth.signInWithEmail(email: email, password: password, remember: rememberMe)
+                }
+            }) {
+                HStack {
+                    if auth.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(auth.isLoading ? "Signing in..." : "Login")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
             }
-            .disabled(email.isEmpty || password.isEmpty)
-            .background((email.isEmpty || password.isEmpty) ? Color.blue.opacity(0.4) : Color.blue)
+            .disabled(email.isEmpty || password.isEmpty || auth.isLoading)
+            .background((email.isEmpty || password.isEmpty || auth.isLoading) ? Color.blue.opacity(0.4) : Color.blue)
             .foregroundColor(.white)
             .cornerRadius(14)
+            
+            // Error message
+            if let error = auth.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
 
             // Separator
             HStack { Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3)); Text("or").foregroundColor(.secondary); Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3)) }

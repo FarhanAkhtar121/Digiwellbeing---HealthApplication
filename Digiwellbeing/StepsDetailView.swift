@@ -3,12 +3,11 @@ import SwiftUI
 
 struct StepsDetailView: View {
     @ObservedObject private var auth = AuthManager.shared
+    @ObservedObject private var health = HealthKitManager.shared
 
-    // Mock data
+    // Mock chart data (visual placeholder)
     private let hourlySteps: [Int] = [120, 350, 560, 800, 950, 1200, 980, 760, 640, 420, 260, 180]
     private let hourlyLabels: [String] = ["6a","7a","8a","9a","10a","11a","12p","1p","2p","3p","4p","5p"]
-    private let totalSteps: Int = 8650
-    private let distanceKm: Double = 6.4
     private let activeCalories: [Double] = [12, 18, 22, 28, 35, 40, 33, 27, 21, 16, 14, 10]
 
     var body: some View {
@@ -37,8 +36,9 @@ struct StepsDetailView: View {
                         .padding(.horizontal)
 
                         HStack(spacing: 16) {
-                            SummaryPill(title: "Steps", value: "\(totalSteps)", color: .blue, icon: "figure.walk")
-                            SummaryPill(title: "Distance", value: String(format: "%.1f km", distanceKm), color: .teal, icon: "point.topleft.down.curvedto.point.bottomright.up")
+                            SummaryPill(title: "Steps", value: "\(health.stepCount)", color: .blue, icon: "figure.walk")
+                            SummaryPill(title: "Distance", value: String(format: "%.1f km", health.distanceTodayMeters / 1000.0), color: .teal, icon: "point.topleft.down.curvedto.point.bottomright.up")
+                            SummaryPill(title: "Exercise", value: "\(health.exerciseMinutesToday) min", color: .green, icon: "flame")
                         }
                         .padding(.horizontal)
                     }

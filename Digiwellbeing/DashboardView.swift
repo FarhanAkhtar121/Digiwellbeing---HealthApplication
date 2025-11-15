@@ -1,4 +1,5 @@
 import SwiftUI
+internal import HealthKit
 
 struct DashboardView: View {
     let gridItems = [GridItem(.flexible()), GridItem(.flexible())]
@@ -7,6 +8,10 @@ struct DashboardView: View {
     @State private var showStepsDetail = false
     @ObservedObject private var authManager = AuthManager.shared
     @ObservedObject private var health = HealthKitManager.shared
+    @State private var syncInProgress = false
+    @State private var syncError: String? = nil
+    @State private var didInitialSync = false
+    
     var body: some View {
         NavigationView {
             ScrollView {
@@ -30,6 +35,19 @@ struct DashboardView: View {
                             .cornerRadius(8)
                             .padding(.horizontal)
                     }
+                    if syncInProgress {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                            Text("Starting live sync…")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }.padding(.horizontal)
+                    } else if let syncError = syncError {
+                        Text(syncError)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding(.horizontal)
+                    }
 
                     Text("Health Dashboard")
                         .font(.largeTitle)
@@ -47,15 +65,18 @@ struct DashboardView: View {
                     // New row for heart rate, steps, workouts
                     LazyVGrid(columns: gridItems, spacing: 16) {
                         Button(action: { showHeartMonitor = true }) {
-                            HeartRateCard()
+                            HeartRateCard(currentBPM: health.heartRate, data: Array(health.heartRateHistory.suffix(10).map { $0.heartRate }))
                         }
                         .buttonStyle(PlainButtonStyle())
                         Button(action: { showStepsDetail = true }) {
-                            StepsDistanceCard()
+                            // Pass live steps, distance (km) and exercise minutes
+                            StepsDistanceCard(totalSteps: health.stepCount,
+                                              distanceKm: health.distanceTodayMeters / 1000.0,
+                                              exerciseMinutes: health.exerciseMinutesToday)
                         }
                         .buttonStyle(PlainButtonStyle())
                         Button(action: { showWorkouts = true }) {
-                            WorkoutsCard()
+                            WorkoutsCard(recentWorkouts: health.recentWorkouts)
                         }
                         .buttonStyle(PlainButtonStyle())
                         Spacer(minLength: 0)
@@ -86,9 +107,15 @@ struct DashboardView: View {
                 }
             }
         }
-        .task {
-            _ = try? await health.requestAuthorization()
-        }
+        .task { await startLiveSyncIfNeeded() }
+    }
+    
+    private func startLiveSyncIfNeeded() async {
+        guard !syncInProgress, !didInitialSync else { return }
+        syncInProgress = true
+        defer { syncInProgress = false }
+        await health.startContinuousSync()
+        didInitialSync = true
     }
 }
 
@@ -271,8 +298,8 @@ struct NoiseLevelCard: View {
 // MARK: - New Cards
 
 struct HeartRateCard: View {
-    let avgHeartRate = 72
-    let heartRateData: [Double] = [68, 70, 72, 75, 74, 73, 72, 71, 70, 72]
+    let currentBPM: Double
+    let data: [Double]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -283,11 +310,11 @@ struct HeartRateCard: View {
                     .foregroundColor(.red)
             }
             Spacer()
-            Text("\(avgHeartRate) BPM")
+            Text("\(Int(currentBPM)) BPM")
                 .font(.title2)
                 .bold()
                 .foregroundColor(.red)
-            LineChartView(data: heartRateData, lineColor: .red)
+            LineChartView(data: data.isEmpty ? [68, 70, 72, 75, 74, 73, 72, 71, 70, 72] : data, lineColor: .red)
                 .frame(height: 32)
         }
         .padding()
@@ -299,8 +326,10 @@ struct HeartRateCard: View {
 }
 
 struct StepsDistanceCard: View {
-    let totalSteps = 8500
-    let distance = 6.2 // km
+    let totalSteps: Int
+    let distanceKm: Double
+    let exerciseMinutes: Int
+    // Placeholder bar data for quick visual
     let stepsData: [Double] = [200, 500, 800, 1200, 1500, 2000, 1800, 1600, 1200, 800, 400, 200]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -316,9 +345,18 @@ struct StepsDistanceCard: View {
                 .font(.title2)
                 .bold()
                 .foregroundColor(.blue)
-            Text(String(format: "%.1f km", distance))
-                .font(.subheadline)
-                .foregroundColor(.blue)
+            HStack(spacing: 8) {
+                if distanceKm > 0 {
+                    Text(String(format: "%.1f km", distanceKm))
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+                if exerciseMinutes > 0 {
+                    Text("• \(exerciseMinutes) min exercise")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+            }
             ColorfulBarChartView(data: stepsData)
                 .frame(height: 32)
         }
@@ -331,11 +369,36 @@ struct StepsDistanceCard: View {
 }
 
 struct WorkoutsCard: View {
-    let recentWorkouts = [
-        ("Bicycle", "bicycle", "30 min"),
-        ("Run", "figure.run", "20 min"),
-        ("Yoga", "figure.yoga", "45 min")
-    ]
+    let recentWorkouts: [HKWorkout]
+    private func workoutIcon(for type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .running: return "figure.run"
+        case .walking: return "figure.walk"
+        case .cycling: return "bicycle"
+        case .yoga: return "figure.yoga"
+        case .swimming: return "figure.pool.swim"
+        case .functionalStrengthTraining: return "figure.strengthtraining.traditional"
+        case .hiking: return "figure.hiking"
+        case .traditionalStrengthTraining: return "figure.strengthtraining.functional"
+        default: return "flame.fill"
+        }
+    }
+    private func workoutName(for type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .running: return "Run"
+        case .walking: return "Walk"
+        case .cycling: return "Cycling"
+        case .yoga: return "Yoga"
+        case .swimming: return "Swim"
+        case .functionalStrengthTraining, .traditionalStrengthTraining: return "Strength"
+        case .hiking: return "Hike"
+        default: return "Workout"
+        }
+    }
+    private func durationText(_ duration: TimeInterval) -> String {
+        let mins = Int(duration/60)
+        return "\(mins) min"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -346,16 +409,22 @@ struct WorkoutsCard: View {
                     .foregroundColor(.orange)
             }
             Spacer()
-            ForEach(recentWorkouts.prefix(2), id: \.0) { workout in
-                HStack(spacing: 6) {
-                    Image(systemName: workout.1)
-                        .foregroundColor(.orange)
-                    Text(workout.0)
-                        .font(.subheadline)
-                    Spacer()
-                    Text(workout.2)
-                        .font(.caption)
-                        .foregroundColor(.gray)
+            if recentWorkouts.isEmpty {
+                Text("No recent workouts")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(recentWorkouts.prefix(2), id: \.uuid) { w in
+                    HStack(spacing: 6) {
+                        Image(systemName: workoutIcon(for: w.workoutActivityType))
+                            .foregroundColor(.orange)
+                        Text(workoutName(for: w.workoutActivityType))
+                            .font(.subheadline)
+                        Spacer()
+                        Text(durationText(w.duration))
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
                 }
             }
             Spacer()
@@ -375,31 +444,55 @@ struct WorkoutsCard: View {
 }
 
 struct WorkoutsDetailView: View {
-    let workouts = [
-        ("Bicycle", "bicycle", "30 min", "Morning ride"),
-        ("Run", "figure.run", "20 min", "Park run"),
-        ("Yoga", "figure.yoga", "45 min", "Evening yoga"),
-        ("HIIT", "figure.strengthtraining.traditional", "25 min", "HIIT session")
-    ]
+    @ObservedObject private var health = HealthKitManager.shared
     @ObservedObject private var authManager = AuthManager.shared
+    private func workoutIcon(for type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .running: return "figure.run"
+        case .walking: return "figure.walk"
+        case .cycling: return "bicycle"
+        case .yoga: return "figure.yoga"
+        case .swimming: return "figure.pool.swim"
+        case .functionalStrengthTraining: return "figure.strengthtraining.traditional"
+        case .hiking: return "figure.hiking"
+        case .traditionalStrengthTraining: return "figure.strengthtraining.functional"
+        default: return "flame.fill"
+        }
+    }
+    private func workoutName(for type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .running: return "Run"
+        case .walking: return "Walk"
+        case .cycling: return "Cycling"
+        case .yoga: return "Yoga"
+        case .swimming: return "Swim"
+        case .functionalStrengthTraining, .traditionalStrengthTraining: return "Strength"
+        case .hiking: return "Hike"
+        default: return "Workout"
+        }
+    }
+    private func durationText(_ duration: TimeInterval) -> String {
+        let mins = Int(duration/60)
+        return "\(mins) min"
+    }
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
-                List(workouts, id: \.0) { workout in
+                List(health.recentWorkouts, id: \.uuid) { workout in
                     HStack {
-                        Image(systemName: workout.1)
+                        Image(systemName: workoutIcon(for: workout.workoutActivityType))
                             .foregroundColor(.orange)
                             .frame(width: 32)
                         VStack(alignment: .leading) {
-                            Text(workout.0)
+                            Text(workoutName(for: workout.workoutActivityType))
                                 .font(.headline)
-                            Text(workout.3)
+                            Text(workout.endDate, style: .time)
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
                         }
                         Spacer()
-                        Text(workout.2)
+                        Text(durationText(workout.duration))
                             .font(.subheadline)
                     }
                     .padding(.vertical, 4)
@@ -437,35 +530,6 @@ struct LineChartView: View {
                 }
             }
             .stroke(lineColor, lineWidth: 2)
-        }
-    }
-}
-
-struct ColorfulBarChartView: View {
-    let data: [Double]
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width / CGFloat(data.count)
-            let maxY = data.max() ?? 1
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(0..<data.count, id: \.self) { i in
-                    Rectangle()
-                        .fill(barColor(for: data[i], max: maxY))
-                        .frame(width: width - 2, height: CGFloat(data[i]) / CGFloat(maxY) * geo.size.height)
-                }
-            }
-        }
-    }
-    func barColor(for value: Double, max: Double) -> LinearGradient {
-        let percent = value / max
-        if percent > 0.8 {
-            return LinearGradient(gradient: Gradient(colors: [Color.red, Color.orange]), startPoint: .bottom, endPoint: .top)
-        } else if percent > 0.6 {
-            return LinearGradient(gradient: Gradient(colors: [Color.orange, Color.yellow]), startPoint: .bottom, endPoint: .top)
-        } else if percent > 0.4 {
-            return LinearGradient(gradient: Gradient(colors: [Color.yellow, Color.green]), startPoint: .bottom, endPoint: .top)
-        } else {
-            return LinearGradient(gradient: Gradient(colors: [Color.green, Color.teal]), startPoint: .bottom, endPoint: .top)
         }
     }
 }

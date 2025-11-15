@@ -5,10 +5,16 @@ struct SignUpView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var fullName: String = ""
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
+    @State private var dateOfBirth: Date = Calendar.current.date(byAdding: .year, value: -25, to: Date()) ?? Date()
+    @State private var phone: String = ""
+    @State private var address: String = ""
+    @State private var insuranceId: String = ""
+
     @State private var rememberMe: Bool = true
     @State private var showPassword: Bool = false
     @State private var showConfirm: Bool = false
@@ -39,9 +45,12 @@ struct SignUpView: View {
 
             // Fields
             VStack(spacing: 14) {
-                IconTextField(icon: "person", placeholder: "Enter your name", text: $fullName)
-                IconTextField(icon: "envelope", placeholder: "Enter your email", text: $email)
-                IconTextField(icon: "lock", placeholder: "Enter your password", text: $password, isSecure: !showPassword)
+                HStack(spacing: 12) {
+                    IconTextField(icon: "person", placeholder: "First name", text: $firstName)
+                    IconTextField(icon: "person", placeholder: "Last name (optional)", text: $lastName)
+                }
+                IconTextField(icon: "envelope", placeholder: "Email", text: $email)
+                IconTextField(icon: "lock", placeholder: "Password (min 6)", text: $password, isSecure: !showPassword)
                     .overlay(alignment: .trailing) {
                         Button(action: { showPassword.toggle() }) {
                             Image(systemName: showPassword ? "eye.slash" : "eye")
@@ -49,7 +58,7 @@ struct SignUpView: View {
                                 .padding(.trailing, 14)
                         }
                     }
-                IconTextField(icon: "lock", placeholder: "Enter your confirm password", text: $confirmPassword, isSecure: !showConfirm)
+                IconTextField(icon: "lock", placeholder: "Confirm password", text: $confirmPassword, isSecure: !showConfirm)
                     .overlay(alignment: .trailing) {
                         Button(action: { showConfirm.toggle() }) {
                             Image(systemName: showConfirm ? "eye.slash" : "eye")
@@ -57,20 +66,59 @@ struct SignUpView: View {
                                 .padding(.trailing, 14)
                         }
                     }
+                DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                IconTextField(icon: "phone", placeholder: "Phone (optional)", text: $phone)
+                IconTextField(icon: "house", placeholder: "Address (optional)", text: $address)
+                IconTextField(icon: "idbadge", placeholder: "Insurance ID (optional)", text: $insuranceId)
+
                 Toggle(isOn: $rememberMe) { Text("Remember me").font(.subheadline) }
                     .toggleStyle(SwitchToggleStyle(tint: .blue))
             }
             .padding(.horizontal)
 
-            // Sign up button (mock: use email flow)
-            Button(action: { auth.signInWithEmail(email: email, password: password, remember: rememberMe) }) {
-                Text("Sign up").font(.headline).frame(maxWidth: .infinity).padding()
+            // Sign up button
+            Button(action: {
+                Task {
+                    await auth.signUpWithEmail(
+                        firstName: firstName,
+                        lastName: lastName.isEmpty ? nil : lastName,
+                        email: email,
+                        password: password,
+                        dateOfBirth: dateOfBirth,
+                        phone: phone.isEmpty ? nil : phone,
+                        address: address.isEmpty ? nil : address,
+                        insuranceId: insuranceId.isEmpty ? nil : insuranceId,
+                        remember: rememberMe
+                    )
+                }
+            }) {
+                HStack {
+                    if auth.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(auth.isLoading ? "Creating account..." : "Sign up")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
             }
-            .disabled(!isFormValid)
-            .background(isFormValid ? Color.blue : Color.blue.opacity(0.4))
+            .disabled(!isFormValid || auth.isLoading)
+            .background((isFormValid && !auth.isLoading) ? Color.blue : Color.blue.opacity(0.4))
             .foregroundColor(.white)
             .cornerRadius(14)
             .padding(.horizontal)
+            
+            // Error message
+            if let error = auth.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal)
+                    .multilineTextAlignment(.center)
+            }
 
             // Or
             VStack(spacing: 10) {
@@ -94,7 +142,7 @@ struct SignUpView: View {
     }
 
     private var isFormValid: Bool {
-        !fullName.isEmpty && !email.isEmpty && password.count >= 6 && password == confirmPassword
+        !firstName.isEmpty && !email.isEmpty && password.count >= 6 && password == confirmPassword
     }
 }
 

@@ -1,5 +1,5 @@
 import SwiftUI
-import HealthKit
+internal import HealthKit
 import Charts
 
 struct SignInView: View {
@@ -69,22 +69,44 @@ struct ContentView: View {
 
 struct HomeTabsView: View {
     @ObservedObject private var authManager = AuthManager.shared
+    @ObservedObject private var health = HealthKitManager.shared
     var body: some View {
         TabView {
-            DashboardView()
-                .tabItem {
-                    Label("Home", systemImage: "house.fill")
-                }
-            SummaryView()
-                .tabItem {
-                    Label("Summary", systemImage: "heart.text.square")
-                }
+            if authManager.isCaretaker {
+                CaretakerDashboardView()
+                    .tabItem {
+                        Label("Caretaker", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+            } else {
+                DashboardView()
+                    .tabItem {
+                        Label("Home", systemImage: "house.fill")
+                    }
+                HeartMonitorView()
+                    .tabItem {
+                        Label("Live", systemImage: "waveform.path.ecg")
+                    }
+                SummaryView()
+                    .tabItem {
+                        Label("Summary", systemImage: "heart.text.square")
+                    }
+            }
+            
+            // Always show sharing so a caretaker can also manage their own sharing settings
             SharingView()
                 .tabItem {
                     Label("Sharing", systemImage: "person.2.fill")
                 }
         }
         .tint(.accentColor)
+        .onAppear {
+            Task {
+                await authManager.checkUserRole()
+                if !authManager.isCaretaker {
+                    await health.startContinuousSync()
+                }
+            }
+        }
     }
 }
 

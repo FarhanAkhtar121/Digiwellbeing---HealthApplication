@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>GIDClientID</key>
-	<string>416951238817-dkfgvva6i2rb906r44d87n0d8m9iajk6.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -16,5 +14,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>GIDClientID</key>
+	<string>416951238817-dkfgvva6i2rb906r44d87n0d8m9iajk6.apps.googleusercontent.com</string>
+	<key>SUPABASE_ANON_KEY</key>
+	<string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBycGJueXd1bWtrdmxydWVhYWZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1OTA1MjYsImV4cCI6MjA3ODE2NjUyNn0.6ZMEhVF_qCOJvEuMsOtkI1IIf1m_ibtQsl0D6St_Xsk</string>
+	<key>SUPABASE_URL</key>
+	<string>https://prpbnywumkkvlrueaafv.supabase.co</string>
 </dict>
 </plist>
