@@ -14,12 +14,18 @@ struct LoginView: View {
 
             Spacer(minLength: 12)
 
-            // Welcome title
-            VStack(alignment: .leading, spacing: 6) {
+            // Welcome message
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Welcome back!")
                     .font(.title).bold()
+                    .foregroundColor(.primary)
+                Text("We're glad to see you again. Login to continue tracking your digital wellbeing and health journey.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 8)
 
             // Fields
             VStack(spacing: 14) {
