@@ -25,7 +25,7 @@ struct WellnessDetailView: View {
                                     .rotationEffect(.degrees(-90))
                                 
                                 VStack(spacing: 8) {
-                                    Text("\(score)")  // ✅ CORRECT - uses string interpolation
+                                    Text(String(format: "%.0f", score.totalScore))  // ✅ CORRECT - uses string interpolation
 
                                         .font(.system(size: 56, weight: .bold))
                                     Text(score.category)

@@ -21,7 +21,7 @@ struct WellnessScoreCard: View {
                         .animation(.easeOut, value: score.totalScore)
                     
                     VStack(spacing: 8) {
-                        Text("\(score)")  // ✅ CORRECT - uses string interpolation
+                        Text(String(format: "%.0f", score.totalScore))  // ✅ CORRECT - uses string interpolation
 
                             .font(.system(size: 48, weight: .bold))
                         
