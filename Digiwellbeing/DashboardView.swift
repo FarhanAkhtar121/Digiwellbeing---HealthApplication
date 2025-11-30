@@ -2,6 +2,8 @@ import SwiftUI
 internal import HealthKit
 
 struct DashboardView: View {
+    @State private var showWellnessDetail = false
+    @StateObject private var wellnessVM = WellnessViewModel()
     let gridItems = [GridItem(.flexible()), GridItem(.flexible())]
     @State private var showHeartMonitor = false
     @State private var showWorkouts = false
@@ -17,7 +19,15 @@ struct DashboardView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     AppTopBar(title: "DigitalWellbeing - Health App", showLogout: true) { authManager.signOut() }
-                    // Welcome line below the consistent header
+                    
+                    // Wellness Score Card
+                    NavigationLink(destination: WellnessDetailView(viewModel: wellnessVM)) {
+                        WellnessScoreCard(score: wellnessVM.currentScore, trend: wellnessVM.getScoreTrend())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal)
+                    
+                    // Welcome message
                     if let name = authManager.userName {
                         Text("Welcome, \(name)!")
                             .font(.subheadline)
@@ -26,6 +36,7 @@ struct DashboardView: View {
                             .padding(.horizontal)
                     }
 
+                    // Mock data indicator
                     if health.useMockData {
                         Label("Showing demo data (Simulator)", systemImage: "info.circle")
                             .font(.footnote)
@@ -35,6 +46,8 @@ struct DashboardView: View {
                             .cornerRadius(8)
                             .padding(.horizontal)
                     }
+                    
+                    // Sync status
                     if syncInProgress {
                         HStack(spacing: 6) {
                             ProgressView()
@@ -49,12 +62,14 @@ struct DashboardView: View {
                             .padding(.horizontal)
                     }
 
+                    // Dashboard title
                     Text("Health Dashboard")
                         .font(.largeTitle)
                         .bold()
                         .foregroundColor(Color.accentColor)
                         .padding(.top, 4)
-                    // 2x2 grid for top four cards
+                    
+                    // Top four cards grid
                     LazyVGrid(columns: gridItems, spacing: 16) {
                         VO2MaxCard(value: health.vo2Max)
                         SleepQualityCard(score: health.sleepScore)
@@ -62,27 +77,31 @@ struct DashboardView: View {
                         BloodOxygenValueCard(value: health.spo2Avg)
                     }
                     .padding(.horizontal)
-                    // New row for heart rate, steps, workouts
+                    
+                    // Heart rate, steps, workouts row
                     LazyVGrid(columns: gridItems, spacing: 16) {
                         Button(action: { showHeartMonitor = true }) {
                             HeartRateCard(currentBPM: health.heartRate, data: Array(health.heartRateHistory.suffix(10).map { $0.heartRate }))
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
                         Button(action: { showStepsDetail = true }) {
-                            // Pass live steps, distance (km) and exercise minutes
                             StepsDistanceCard(totalSteps: health.stepCount,
                                               distanceKm: health.distanceTodayMeters / 1000.0,
                                               exerciseMinutes: health.exerciseMinutesToday)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
                         Button(action: { showWorkouts = true }) {
                             WorkoutsCard(recentWorkouts: health.recentWorkouts)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal)
-                    // Main cards
+                    
+                    // Health condition cards
                     VStack(spacing: 16) {
                         MenstrualCycleCard()
                         HypertensionAlertCard()
@@ -107,7 +126,11 @@ struct DashboardView: View {
                 }
             }
         }
-        .task { await startLiveSyncIfNeeded() }
+        // ✅ FIX: Single .task block that does both sync and wellness data load
+        .task {
+            await startLiveSyncIfNeeded()
+            await wellnessVM.loadWellnessData()
+        }
     }
     
     private func startLiveSyncIfNeeded() async {
@@ -329,7 +352,6 @@ struct StepsDistanceCard: View {
     let totalSteps: Int
     let distanceKm: Double
     let exerciseMinutes: Int
-    // Placeholder bar data for quick visual
     let stepsData: [Double] = [200, 500, 800, 1200, 1500, 2000, 1800, 1600, 1200, 800, 400, 200]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -370,6 +392,7 @@ struct StepsDistanceCard: View {
 
 struct WorkoutsCard: View {
     let recentWorkouts: [HKWorkout]
+    
     private func workoutIcon(for type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "figure.run"
@@ -383,6 +406,7 @@ struct WorkoutsCard: View {
         default: return "flame.fill"
         }
     }
+    
     private func workoutName(for type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "Run"
@@ -395,10 +419,12 @@ struct WorkoutsCard: View {
         default: return "Workout"
         }
     }
+    
     private func durationText(_ duration: TimeInterval) -> String {
         let mins = Int(duration/60)
         return "\(mins) min"
     }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -446,6 +472,7 @@ struct WorkoutsCard: View {
 struct WorkoutsDetailView: View {
     @ObservedObject private var health = HealthKitManager.shared
     @ObservedObject private var authManager = AuthManager.shared
+    
     private func workoutIcon(for type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "figure.run"
@@ -459,6 +486,7 @@ struct WorkoutsDetailView: View {
         default: return "flame.fill"
         }
     }
+    
     private func workoutName(for type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "Run"
@@ -471,10 +499,12 @@ struct WorkoutsDetailView: View {
         default: return "Workout"
         }
     }
+    
     private func durationText(_ duration: TimeInterval) -> String {
         let mins = Int(duration/60)
         return "\(mins) min"
     }
+    
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -504,11 +534,12 @@ struct WorkoutsDetailView: View {
     }
 }
 
-// MARK: - Chart Placeholders
+// MARK: - Chart Components
 
 struct LineChartView: View {
     let data: [Double]
     var lineColor: Color = .blue
+    
     var body: some View {
         GeometryReader { geo in
             Path { path in
@@ -534,10 +565,11 @@ struct LineChartView: View {
     }
 }
 
-// MARK: - Simple Calendar Placeholder
+// MARK: - Calendar Component
 
 struct CalendarView: View {
     let selectedDay: Int
+    
     var body: some View {
         HStack(spacing: 8) {
             ForEach(13...22, id: \.self) { day in
@@ -551,10 +583,12 @@ struct CalendarView: View {
     }
 }
 
-// MARK: - Preview
+// MARK: - Preview (Disabled for now since singletons can't initialize without app context)
 
 struct DashboardView_Previews: PreviewProvider {
     static var previews: some View {
-        DashboardView()
+        // Preview disabled - DashboardView requires initialized singletons
+        // (AuthManager, HealthKitManager) which can't be created in preview context
+        Text("DashboardView Preview requires running app context")
     }
 }

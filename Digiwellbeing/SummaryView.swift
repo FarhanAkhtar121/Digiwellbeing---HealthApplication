@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SummaryView: View {
     @ObservedObject private var authManager = AuthManager.shared
+    @ObservedObject private var health = HealthKitManager.shared
 
     var body: some View {
         NavigationView {
@@ -23,8 +24,10 @@ struct SummaryView: View {
                     VStack(spacing: 12) {
                         SummaryActivityCard()
                         SummaryStepsCard()
+                        SummaryVO2MaxCard(value: health.vo2Max)
+                        SummarySpO2Card(avg: health.spo2Avg, samples: health.bloodOxygenSamples)
                         SummaryWalkingSteadinessCard()
-                        SummarySleepScoreCard()
+                        SummarySleepScoreCard(score: health.sleepScore)
                     }
                     .padding(.horizontal)
                 }
@@ -98,12 +101,46 @@ struct SummaryActivityCard: View {
 }
 
 struct SummaryStepsCard: View {
-    let bars: [Double] = [200, 600, 1200, 800, 400, 1400, 900]
+    @ObservedObject private var health = HealthKitManager.shared
     var body: some View {
         SummaryCard(title: "Steps", icon: "figure.walk", tint: .blue) {
             VStack(alignment: .leading) {
-                Text("1,909 steps").font(.title2).bold()
-                ColorfulBarChartView(data: bars).frame(height: 48)
+                Text("\(health.stepCount) steps").font(.title2).bold()
+                ColorfulBarChartView(data: [200, 600, 1200, 800, 400, 1400, 900]).frame(height: 48)
+            }
+        }
+    }
+}
+
+struct SummaryVO2MaxCard: View {
+    let value: Double?
+    var body: some View {
+        SummaryCard(title: "VO2 Max", icon: "lungs.fill", tint: .purple) {
+            HStack {
+                Text(value.map { String(format: "%.1f mL/kg/min", $0) } ?? "—")
+                    .font(.title3)
+                    .bold()
+                Spacer()
+                Image(systemName: "waveform").foregroundColor(.purple)
+            }
+        }
+    }
+}
+
+struct SummarySpO2Card: View {
+    let avg: Double?
+    let samples: [Double]
+    var body: some View {
+        SummaryCard(title: "Blood Oxygen", icon: "drop.fill", tint: .teal) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(avg.map { String(format: "%.0f%%", $0) } ?? "—")
+                        .font(.title3)
+                        .bold()
+                    Spacer()
+                }
+                ColorfulBarChartView(data: samples.isEmpty ? [97, 98, 97, 99, 98, 97, 98] : samples)
+                    .frame(height: 32)
             }
         }
     }
@@ -127,19 +164,23 @@ struct SummaryWalkingSteadinessCard: View {
 }
 
 struct SummarySleepScoreCard: View {
+    let score: Int?
     var body: some View {
         SummaryCard(title: "Sleep Score", icon: "bed.double.fill", tint: .purple) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("Excellent")
+                    Text(score.map { $0 >= 85 ? "Excellent" : ($0 >= 70 ? "Good" : "Fair") } ?? "—")
                         .font(.title3)
                         .bold()
-                    Text("97 points").font(.caption).foregroundColor(.secondary)
+                    Text(score.map { "\($0) points" } ?? "No data").font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
                 ZStack {
-                    Circle().trim(from: 0, to: 0.97).stroke(style: StrokeStyle(lineWidth: 8, lineCap: .round)).foregroundColor(.blue)
-                    Text("97").bold()
+                    let progress = Double(score ?? 0) / 100.0
+                    Circle().trim(from: 0, to: progress)
+                        .stroke(style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .foregroundColor(.blue)
+                    Text(score.map { "\($0)" } ?? "—").bold()
                 }
                 .frame(width: 44, height: 44)
             }

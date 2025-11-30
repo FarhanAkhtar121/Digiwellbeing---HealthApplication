@@ -2,7 +2,7 @@ import Foundation
 internal import HealthKit
 internal import Combine
 internal import Auth
-internal import CoreMotion
+import CoreMotion
 
 struct HeartRateReading: Identifiable {
     let id = UUID()
@@ -15,6 +15,7 @@ class HealthKitManager: ObservableObject {
     static let shared = HealthKitManager()
     private let healthStore = HKHealthStore()
     private let pedometer = CMPedometer()
+    
     
     @Published var heartRate: Double = 0
     @Published var isAuthorized: Bool = false
@@ -30,6 +31,9 @@ class HealthKitManager: ObservableObject {
     @Published var distanceTodayMeters: Double = 0
     @Published var exerciseMinutesToday: Int = 0
     @Published var recentWorkouts: [HKWorkout] = []
+    @Published var sleepHoursLastNight: Double? // Raw hours for wellness calc
+    @Published var restingHeartRate: Double? // For heart health score
+    
 
     // Persistent anchors for background delivery (secure coded into UserDefaults)
     private let hrAnchorKey = "HKAnchor_HeartRate"
@@ -38,6 +42,10 @@ class HealthKitManager: ObservableObject {
     private let distanceAnchorKey = "HKAnchor_DistanceWalkRun"
     private let exerciseAnchorKey = "HKAnchor_AppleExerciseTime"
     private let workoutsAnchorKey = "HKAnchor_Workouts"
+    // Add anchors for VO2 Max and Sleep
+    private let vo2MaxAnchorKey = "HKAnchor_VO2Max"
+    private let sleepAnchorKey = "HKAnchor_Sleep"
+    private let restingHRKey = "HKAnchor_RestingHeartRate"
 
     // Guards to avoid duplicate setups
     private var liveSyncStarted = false
@@ -58,47 +66,40 @@ class HealthKitManager: ObservableObject {
     func startContinuousSync() async {
         guard !liveSyncStarted else { return }
         liveSyncStarted = true
-        // Invalidate previous poll timer if any
-        pollTimer?.invalidate()
-        pollTimer = nil
-
+        pollTimer?.invalidate(); pollTimer = nil
+        print("[HealthKitManager] Starting continuous sync")
         #if targetEnvironment(simulator)
+        print("[HealthKitManager] Simulator environment detected; enabling mock mode")
         setupMockModeAndSchedule()
+        return
         #else
         guard HKHealthStore.isHealthDataAvailable() else {
-            setupMockModeAndSchedule()
-            return
+            print("[HealthKitManager] Health data not available; falling back to mock mode")
+            setupMockModeAndSchedule(); return
         }
-
         do {
+            print("[HealthKitManager] Requesting HealthKit authorization")
             let authorized = try await requestAuthorization()
             self.isAuthorized = authorized
             if !authorized {
-                setupMockModeAndSchedule()
-                return
+                print("[HealthKitManager] Authorization denied; enabling mock mode")
+                setupMockModeAndSchedule(); return
             }
         } catch {
-            print("Authorization error: \(error)")
-            setupMockModeAndSchedule()
-            return
+            print("[HealthKitManager] Authorization error: \(error); enabling mock mode")
+            setupMockModeAndSchedule(); return
         }
-
-        // Establish cutoff BEFORE starting observers to avoid double counting
         self.primeCutoffDate = Date()
-
-        // Enable background delivery and observers
+        print("[HealthKitManager] Prime cutoff date set: \(primeCutoffDate!)")
         await enableBackgroundDelivery()
+        print("[HealthKitManager] Background delivery enabled")
         setupObservers()
-
-        // Optionally start pedometer updates for iPhone step near-real-time
+        print("[HealthKitManager] Observers configured")
         startPedometerIfAvailable()
-
-        // Prime dashboard metrics (fetch latest snapshot for UI)
-        await fetchAllDashboardMetrics()
-        // Also push a summary snapshot
-        await syncSummaryMetricsToSupabase()
-        // Schedule periodic polling for VO2 Max and Sleep (no real-time API)
-        scheduleSummaryPolling()
+        print("[HealthKitManager] Pedometer start attempted")
+        await fetchAllDashboardMetrics(); print("[HealthKitManager] Initial dashboard metrics fetched")
+        await syncSummaryMetricsToSupabase(); print("[HealthKitManager] Summary metrics synced")
+        scheduleSummaryPolling(); print("[HealthKitManager] Summary polling scheduled")
         #endif
     }
 
@@ -176,6 +177,9 @@ class HealthKitManager: ObservableObject {
             HKObjectType.quantityType(forIdentifier: .oxygenSaturation),
             HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning),
             HKObjectType.quantityType(forIdentifier: .appleExerciseTime),
+            // Add VO2 Max and Sleep to background delivery
+            HKObjectType.quantityType(forIdentifier: .vo2Max),
+            HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
             HKObjectType.workoutType()
         ].compactMap { $0 }
         for t in types {
@@ -254,6 +258,32 @@ class HealthKitManager: ObservableObject {
             }
             healthStore.execute(q)
         }
+        // VO2 Max
+        if let type = HKObjectType.quantityType(forIdentifier: .vo2Max) {
+            let q = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, error in
+                guard let self = self else { completion(); return }
+                if let error { print("VO2 observer error: \(error)"); completion(); return }
+                Task { @MainActor in
+                    self.runAnchoredQuery(for: type, anchorKey: self.vo2MaxAnchorKey, unit: HKUnit(from: "mL/min/kg"), metric: "VO2_MAX") {
+                        completion()
+                    }
+                }
+            }
+            healthStore.execute(q)
+        }
+        // Sleep (category)
+        if let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
+            let q = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, error in
+                guard let self = self else { completion(); return }
+                if let error { print("Sleep observer error: \(error)"); completion(); return }
+                Task { @MainActor in
+                    self.runCategoryAnchoredQuery(for: type, anchorKey: self.sleepAnchorKey, metric: "SLEEP_QUALITY") {
+                        completion()
+                    }
+                }
+            }
+            healthStore.execute(q)
+        }
         // Workouts
         let wType = HKObjectType.workoutType()
         let wObserver = HKObserverQuery(sampleType: wType, predicate: nil) { [weak self] _, completion, error in
@@ -266,7 +296,28 @@ class HealthKitManager: ObservableObject {
             }
         }
         healthStore.execute(wObserver)
+        
+        
+        // Resting Heart Rate observer
+        if let type = HKObjectType.quantityType(forIdentifier: .restingHeartRate) {
+            let q = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, error in
+                guard let self = self else { completion(); return }
+                if let error { print("RHR observer error: \\(error)"); completion(); return }
+                Task { @MainActor in
+                    self.runAnchoredQuery(for: type, anchorKey: self.restingHRKey,
+                                          unit: HKUnit.count().unitDivided(by: .minute()),
+                                          metric: "RESTING_HEART_RATE") { completion() }
+                }
+            }
+            healthStore.execute(q)
+        }
     }
+
+    // Update handleQuantitySamples to include:
+
+    
+    
+       
 
     private func runAnchoredQuery(for type: HKQuantityType,
                                   anchorKey: String,
@@ -297,23 +348,22 @@ class HealthKitManager: ObservableObject {
         healthStore.execute(query)
     }
 
+    // Add: anchored query for workouts (used by setupObservers)
     private func runWorkoutAnchoredQuery(anchorKey: String, completion: @escaping () -> Void) {
         let startAnchor = loadAnchor(forKey: anchorKey)
         let wType = HKObjectType.workoutType()
-        let query = HKAnchoredObjectQuery(type: wType, predicate: nil, anchor: startAnchor, limit: HKObjectQueryNoLimit) { [weak self] _, samples, deleted, newAnchor, error in
+        let query = HKAnchoredObjectQuery(type: wType, predicate: nil, anchor: startAnchor, limit: HKObjectQueryNoLimit) { [weak self] (query: HKAnchoredObjectQuery, samples: [HKSample]?, deleted: [HKDeletedObject]?, newAnchor: HKQueryAnchor?, error: Error?) in
             defer { completion() }
             guard let self = self else { return }
             if let error { print("Workout anchored error: \(error)"); return }
             self.saveAnchor(newAnchor, forKey: anchorKey)
             let workouts = (samples as? [HKWorkout]) ?? []
             Task { @MainActor in
-                // Keep a short recent list
                 self.recentWorkouts = Array((self.recentWorkouts + workouts).suffix(10))
-                // Optionally push a simple metric for each new workout (duration in minutes)
                 for w in workouts { await self.pushMetricToSupabase(metric: "WORKOUT_DURATION_MIN", value: w.duration/60.0, unit: "min", date: w.endDate) }
             }
         }
-        query.updateHandler = { [weak self] _, samples, deleted, newAnchor, error in
+        query.updateHandler = { [weak self] (query: HKAnchoredObjectQuery, samples: [HKSample]?, deleted: [HKDeletedObject]?, newAnchor: HKQueryAnchor?, error: Error?) in
             guard let self = self else { return }
             if let error { print("Workout anchored update error: \(error)"); return }
             self.saveAnchor(newAnchor, forKey: anchorKey)
@@ -324,6 +374,52 @@ class HealthKitManager: ObservableObject {
             }
         }
         healthStore.execute(query)
+    }
+    
+    
+
+    // Fix: anchored query handler for category types (sleep) with explicit types
+    private func runCategoryAnchoredQuery(for type: HKCategoryType,
+                                          anchorKey: String,
+                                          metric: String,
+                                          completion: @escaping () -> Void) {
+        let startAnchor = loadAnchor(forKey: anchorKey)
+        let query = HKAnchoredObjectQuery(type: type, predicate: nil, anchor: startAnchor, limit: HKObjectQueryNoLimit) { [weak self] (query: HKAnchoredObjectQuery, samples: [HKSample]?, deleted: [HKDeletedObject]?, newAnchor: HKQueryAnchor?, error: Error?) in
+            defer { completion() }
+            guard let self = self else { return }
+            if let error { print("Category anchored error for \(metric): \(error)"); return }
+            self.saveAnchor(newAnchor, forKey: anchorKey)
+            Task { @MainActor in
+                await self.recomputeSleepScoreAndPush()
+            }
+        }
+        query.updateHandler = { [weak self] (query: HKAnchoredObjectQuery, samples: [HKSample]?, deleted: [HKDeletedObject]?, newAnchor: HKQueryAnchor?, error: Error?) in
+            guard let self = self else { return }
+            if let error { print("Category anchored update error for \(metric): \(error)"); return }
+            self.saveAnchor(newAnchor, forKey: anchorKey)
+            Task { @MainActor in
+                await self.recomputeSleepScoreAndPush()
+            }
+        }
+        healthStore.execute(query)
+    }
+
+    /// Recomputes sleep score (last 24h) and pushes to Supabase.
+    @MainActor
+    private func recomputeSleepScoreAndPush() async {
+        let now = Date(); let start = Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+        do {
+            let cat = try await categorySamples(for: type, start: start, end: now)
+            let asleepSeconds = cat.filter { $0.value != HKCategoryValueSleepAnalysis.inBed.rawValue }.reduce(0.0) { $0 + $1.endDate.timeIntervalSince($1.startDate) }
+            let hours = asleepSeconds/3600.0
+            let score = max(0, min(100, Int((hours/8.0)*100)))
+            self.sleepScore = score
+            self.sleepHoursLastNight = hours
+            await pushMetricToSupabase(metric: "SLEEP_QUALITY", value: Double(score), unit: "score", date: now)
+        } catch {
+            print("recomputeSleepScoreAndPush error: \(error)")
+        }
     }
 
     @MainActor
@@ -359,6 +455,16 @@ class HealthKitManager: ObservableObject {
                 let now = Date(); let startOfDay = Calendar.current.startOfDay(for: now)
                 if s.endDate >= startOfDay { self.exerciseMinutesToday += Int(value) }
                 await pushMetricToSupabase(metric: metric, value: value, unit: "min", date: s.endDate)
+            case "VO2_MAX":
+                self.vo2Max = value
+                await pushMetricToSupabase(metric: metric, value: value, unit: "mL/kg/min", date: s.endDate)
+            case "RESTING_HEART_RATE":
+                self.restingHeartRate = value
+                await pushMetricToSupabase(metric: metric, value: value, unit: "BPM", date: s.endDate)
+
+            // Update fetchAllDashboardMetrics:
+
+            
             default:
                 break
             }
@@ -390,16 +496,21 @@ class HealthKitManager: ObservableObject {
     // MARK: - CMPedometer
     private func startPedometerIfAvailable() {
         guard !pedometerStarted else { return }
-        guard CMPedometer.isStepCountingAvailable() else { return }
+        guard CMPedometer.isStepCountingAvailable() else { print("[HealthKitManager] Step counting not available on this device"); return }
+        // Ensure privacy description exists; if missing, accessing pedometer can terminate the app.
+        if Bundle.main.object(forInfoDictionaryKey: "NSMotionUsageDescription") == nil {
+            print("[HealthKitManager] NSMotionUsageDescription missing; skipping pedometer to avoid crash")
+            return
+        }
         pedometerStarted = true
+        print("[HealthKitManager] Starting pedometer updates")
         pedometer.startUpdates(from: Date()) { [weak self] data, error in
             guard let self = self else { return }
-            if let error { print("Pedometer error: \(error)"); return }
+            if let error { print("[HealthKitManager] Pedometer error: \(error)"); return }
             guard let data else { return }
             let steps = data.numberOfSteps.intValue
             Task { @MainActor in
                 self.stepCount = steps
-                // Avoid pushing via pedometer to prevent duplicates; HK observers persist samples
             }
         }
     }
@@ -453,6 +564,7 @@ class HealthKitManager: ObservableObject {
         await fetchTodayActivitySums()
         // Fetch an initial list of recent workouts so UI isn't empty at launch
         await fetchRecentWorkouts()
+        await fetchRestingHeartRate()
     }
 
     @MainActor
@@ -576,6 +688,30 @@ class HealthKitManager: ObservableObject {
             if let sum = try? await statisticsSum(for: type, start: startOfDay, end: now, options: .cumulativeSum) {
                 self.exerciseMinutesToday = Int(sum.doubleValue(for: .minute()))
             }
+        }
+    }
+    
+    // Add new method:
+
+    @MainActor
+    private func fetchRestingHeartRate() async {
+        guard let type = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else { return }
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        
+        do {
+            let samples = try await withCheckedThrowingContinuation { c in
+                let q = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, error in
+                    c.resume(returning: samples ?? [])
+                }
+                healthStore.execute(q)
+            }
+            
+            if let sample = samples.first as? HKQuantitySample {
+                let unit = HKUnit.count().unitDivided(by: .minute())
+                self.restingHeartRate = sample.quantity.doubleValue(for: unit)
+            }
+        } catch {
+            print("Failed to fetch resting HR: \\(error)")
         }
     }
 

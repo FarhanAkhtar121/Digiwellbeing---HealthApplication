@@ -413,4 +413,77 @@ final class SupabaseService {
             .value
         return rows.first
     }
+    
+    struct ProfileRowComplete: Decodable, Sendable {
+        let user_id: UUID
+        let email: String?
+        let first_name: String?
+        let last_name: String?
+        let date_of_birth: String?
+        let gender: String?
+        let phone_number: String?
+    }
+
+    nonisolated struct WellnessScoreInput: Encodable, Sendable {
+        let user_id: String
+        let cardiovascular_fitness_score: Double
+        let sleep_quality_score: Double
+        let physical_activity_score: Double
+        let heart_health_score: Double
+        let recovery_score: Double
+        let consistency_score: Double
+        let total_wellness_score: Double
+        let score_category: String
+        let calculation_date: String
+    }
+    
+    func fetchProfileComplete(userId: UUID) async throws -> ProfileRowComplete? {
+        let rows: [ProfileRowComplete] = try await client
+            .from("profiles")
+            .select()
+            .filter("user_id", operator: "eq", value: userId.uuidString)
+            .limit(1)
+            .execute()
+            .value
+        return rows.first
+    }
+
+    func saveWellnessScore(_ score: WellnessScoreComponents) async throws {
+        guard let uid = client.auth.currentUser?.id else { return }
+        
+        let iso = ISO8601DateFormatter()
+        let dateOnly = Calendar.current.startOfDay(for: Date())
+        
+        let record = WellnessScoreInput(
+            user_id: uid.uuidString,
+            cardiovascular_fitness_score: score.cardiovascularFitness,
+            sleep_quality_score: score.sleepQuality,
+            physical_activity_score: score.physicalActivity,
+            heart_health_score: score.heartHealth,
+            recovery_score: score.recovery,
+            consistency_score: score.consistency,
+            total_wellness_score: score.totalScore,
+            score_category: score.category,
+            calculation_date: iso.string(from: dateOnly)
+        )
+        
+        _ = try await client.from("wellness_scores").upsert(record).execute()
+    }
+
+    func fetchWellnessScoreHistory(days: Int = 30) async throws -> [WellnessScoreResponse] {
+        guard let uid = client.auth.currentUser?.id else { return [] }
+        
+        let rows: [WellnessScoreResponse] = try await client
+            .from("wellness_scores")
+            .select()
+            .filter("user_id", operator: "eq", value: uid.uuidString)
+            .order("calculation_date", ascending: false)
+            .limit(days)
+            .execute()
+            .value
+        
+        return rows
+    }
+    
+    
 }

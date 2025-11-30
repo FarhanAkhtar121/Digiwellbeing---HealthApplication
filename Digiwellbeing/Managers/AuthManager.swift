@@ -196,6 +196,8 @@ class AuthManager: ObservableObject {
         }
     }
     
+    
+    
     func signInWithMicrosoft() {
         // TODO: Replace with MSAL SDK flow
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -228,10 +230,14 @@ class AuthManager: ObservableObject {
             }
         }
     }
-    
-    func handleOpenURL(_ url: URL) -> Bool {
-        // Pass to Google if possible; extend with MSAL handler later
-        if GIDSignIn.sharedInstance.handle(url) { return true }
-        return false
+    nonisolated func handleOpenURL(_ url: URL) -> Bool {
+        // Dispatch to main thread to avoid crashes
+        DispatchQueue.main.async {
+            let handled = GIDSignIn.sharedInstance.handle(url)
+            if handled {
+                print("✅ Google Sign-In URL handled successfully")
+            }
+        }
+        return true
     }
 }
